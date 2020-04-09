@@ -46,13 +46,28 @@ var listen string
 var cacheDir string
 var proxyHost string
 var excludeHost string
+var mirrors map[string]string
+
+type arrayFlags []string
+
+func (flags *arrayFlags) String() string {
+	return strings.Join(*flags, ",")
+}
+func (flags *arrayFlags) Set(value string) error {
+	*flags = append(*flags, value)
+	return nil
+}
 
 func init() {
+	var mirrorsSlice arrayFlags
 	flag.StringVar(&excludeHost, "exclude", "", "exclude host pattern")
 	flag.StringVar(&proxyHost, "proxy", "", "next hop proxy for go modules")
 	flag.StringVar(&cacheDir, "cacheDir", "", "go modules cache dir")
 	flag.StringVar(&listen, "listen", "0.0.0.0:8081", "service listen address")
+	flag.Var(&mirrorsSlice, "mirrors", "precise mirrors for each kind of path, example: github.com,mymirror.internal")
 	flag.Parse()
+
+	parseMirrorsFlag(mirrorsSlice)
 
 	if os.Getenv("GIT_TERMINAL_PROMPT") == "" {
 		os.Setenv("GIT_TERMINAL_PROMPT", "0")
@@ -74,6 +89,19 @@ func init() {
 	downloadRoot = getDownloadRoot()
 }
 
+func parseMirrorsFlag(mirrorsSlice arrayFlags) {
+	if len(mirrorsSlice) > 0 {
+		mirrors = make(map[string]string)
+		for _, mirrorCfg := range mirrorsSlice {
+			mirrorFlag := strings.Split(mirrorCfg, ",")
+			if len(mirrorFlag) < 2 {
+				log.Fatalf("format of mirrors flag (%s) is not correct, here is a correct format 'github.com,mymirror.internal' for example", mirrorCfg)
+			}
+			mirrors[strings.TrimSpace(mirrorFlag[0])] = strings.TrimSpace(mirrorFlag[1])
+		}
+	}
+}
+
 func main() {
 	log.SetPrefix("goproxy.io: ")
 	log.SetFlags(0)
@@ -84,13 +112,13 @@ func main() {
 		if excludeHost != "" {
 			log.Printf("ExcludeHost %s\n", excludeHost)
 		}
-		handle = &logger{proxy.NewRouter(proxy.NewServer(new(ops)), &proxy.RouterOptions{
+		handle = &logger{proxy.NewRouter(proxy.NewServer(new(ops), mirrors), &proxy.RouterOptions{
 			Pattern:      excludeHost,
 			Proxy:        proxyHost,
 			DownloadRoot: downloadRoot,
 		})}
 	} else {
-		handle = &logger{proxy.NewServer(new(ops))}
+		handle = &logger{proxy.NewServer(new(ops), mirrors)}
 	}
 
 	server := &http.Server{Addr: listen, Handler: handle}

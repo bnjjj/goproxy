@@ -106,12 +106,13 @@ type File interface {
 // All recognized requests to the server contain the substring "/@v/" in the URL.
 // The server will respond with an http.StatusBadRequest (400) error to unrecognized requests.
 type Server struct {
-	ops ServerOps
+	ops     ServerOps
+	mirrors map[string]string
 }
 
 // NewServer returns a new Server using the given operations.
-func NewServer(ops ServerOps) *Server {
-	return &Server{ops: ops}
+func NewServer(ops ServerOps, mirrors map[string]string) *Server {
+	return &Server{ops: ops, mirrors: mirrors}
 }
 
 // ServeHTTP is the server's implementation of http.Handler.
@@ -126,6 +127,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/sumdb/") {
 		sumdb.Handler(w, r)
 		return
+	}
+
+	sanitizedPath := strings.TrimPrefix(r.URL.Path, "/")
+	for pattern, mirror := range s.mirrors {
+		if strings.Contains(sanitizedPath, pattern) {
+			r.URL.Path = "/" + strings.Replace(sanitizedPath, pattern, mirror, 1)
+			break
+		}
 	}
 
 	i := strings.Index(r.URL.Path, "/@")
